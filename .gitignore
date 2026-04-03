@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.log
+data/guildRankConfig.json
+sayuri-rank-test.png
+.DS_Store
