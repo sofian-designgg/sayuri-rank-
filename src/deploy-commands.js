@@ -38,7 +38,8 @@ async function main() {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
         body: slashCommandsJson,
       });
-      console.log(`OK — guilde ${GUILD_ID} : commandes staff + /rank public.`);
+      const listed = slashCommandsJson.map((c) => `/${c.name}`).join(', ');
+      console.log(`OK — guilde ${GUILD_ID} : ${listed}`);
       return;
     } catch (e) {
       console.error('Erreur guilde :', e?.rawError ?? e?.message ?? e);
@@ -48,7 +49,8 @@ async function main() {
   }
 
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: slashCommandsJson });
-  console.log('OK — commandes GLOBAL (délai jusqu’à ~1 h).');
+  const listed = slashCommandsJson.map((c) => `/${c.name}`).join(', ');
+  console.log(`OK — GLOBAL (≤ ~1 h) : ${listed}`);
 }
 
 main().catch((e) => {

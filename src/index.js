@@ -11,7 +11,6 @@ const {
   EmbedBuilder,
   MessageFlags,
   InteractionType,
-  ApplicationCommandType,
 } = require('discord.js');
 const { generateSayuriCard, mockRankData } = require('./generateSayuriCard');
 const {
@@ -91,16 +90,17 @@ function isSlashCommand(interaction) {
   );
 }
 
+/**
+ * Slash : toute ApplicationCommand sauf menus contextuels et primary entry point.
+ * (Évite les faux négatifs si commandType n’est pas exactement ChatInput côté lib/API.)
+ */
 function isGuildSlashChatCommand(interaction) {
   if (!interaction.isCommand()) return false;
   if (interaction.isContextMenuCommand()) return false;
   if (typeof interaction.isPrimaryEntryPointCommand === 'function' && interaction.isPrimaryEntryPointCommand()) {
     return false;
   }
-  const t = interaction.commandType;
-  if (t === ApplicationCommandType.ChatInput || t === 1) return true;
-  if (t == null) return true;
-  return false;
+  return true;
 }
 
 client.on('interactionCreate', async (interaction) => {
@@ -109,7 +109,10 @@ client.on('interactionCreate', async (interaction) => {
     if (cmd) console.log(`[interaction] /${cmd} par ${interaction.user?.tag}`);
 
     if (isGuildSlashChatCommand(interaction)) {
-      const slashName = (interaction.commandName || '').trim();
+      const slashName = (interaction.commandName || '')
+        .trim()
+        .normalize('NFKC')
+        .toLowerCase();
 
       if (slashName === 'ping') {
         const ms = client.ws.ping;
@@ -161,9 +164,7 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
         return;
-      }
-
-      if (slashName === 'panelrank') {
+      } else if (slashName === 'panelrank') {
         if (!interaction.guild) {
           await interaction.reply({
             content: 'À utiliser sur un **serveur**.',
@@ -177,9 +178,7 @@ client.on('interactionCreate', async (interaction) => {
           flags: MessageFlags.Ephemeral,
         });
         return;
-      }
-
-      if (slashName === 'setchannelrank') {
+      } else if (slashName === 'setchannelrank') {
         if (!interaction.guild) {
           await interaction.reply({
             content: 'À utiliser sur un **serveur**.',
@@ -212,9 +211,12 @@ client.on('interactionCreate', async (interaction) => {
           });
           return;
         }
-      }
-
-      if (slashName === 'finishrankpanel') {
+        await interaction.reply({
+          content: 'Sous-commande inconnue. Utilise **définir** ou **retirer**.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      } else if (slashName === 'finishrankpanel') {
         if (!interaction.guild) {
           await interaction.reply({
             content: 'À utiliser sur un **serveur**.',
@@ -250,9 +252,12 @@ client.on('interactionCreate', async (interaction) => {
           });
           return;
         }
-      }
-
-      if (slashName === 'conditionpanel') {
+        await interaction.reply({
+          content: 'Sous-commande inconnue. Utilise **terminer** ou **modifier**.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      } else if (slashName === 'conditionpanel') {
         if (!interaction.guild) {
           await interaction.reply({
             content: 'À utiliser sur un **serveur**.',
