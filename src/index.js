@@ -27,6 +27,7 @@ const {
   setPendingPanelRoles,
   getPanelSession,
   initPanelSession,
+  patchPanelSession,
   setSessionToSlot,
   hasBothPendingRoles,
 } = require('./pendingPanelRank');
@@ -445,10 +446,23 @@ client.on('interactionCreate', async (interaction) => {
         minVocalMinutes,
       });
       const cfg3 = await getGuildConfig(interaction.guild.id);
-      initPanelSession(interaction.guild.id, interaction.user.id, sortPanelRanks(cfg3.panelRanks));
+      const sortedAfter = sortPanelRanks(cfg3.panelRanks);
+      // Ne pas vider les rôles : sinon l’embed du panel montre encore les coches mais la session est vide
+      // (même rôle perm sur plusieurs paliers = enchaîner « Prérequis » sans tout re-sélectionner).
+      patchPanelSession(interaction.guild.id, interaction.user.id, {
+        slotIndex: sortedAfter.length,
+        editingTierId: null,
+        permRoleId: sess.permRoleId,
+        aestheticRoleId: sess.aestheticRoleId,
+      });
+      const sessFresh = getPanelSession(interaction.guild.id, interaction.user.id) ?? {};
+      const payloadFresh = await buildPanelrankPayload(interaction.guild, sessFresh);
+      if (interaction.message?.editable) {
+        await interaction.message.edit(payloadFresh).catch(() => {});
+      }
       await interaction.reply({
         content:
-          `Palier enregistré — **Perm** <@&${sess.permRoleId}> · **Esth.** <@&${sess.aestheticRoleId}> : **${minMessages}** msgs, **${minVocalMinutes}** min vocal. Rouvre **/panelrank** pour continuer.`,
+          `Palier enregistré — **Perm** <@&${sess.permRoleId}> · **Esth.** <@&${sess.aestheticRoleId}> : **${minMessages}** msgs, **${minVocalMinutes}** min vocal. Les **deux rôles restent actifs** : tu peux cliquer **Prérequis** pour le palier suivant (même rôles OK). Sinon rouvre **/panelrank** pour rafraîchir.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
