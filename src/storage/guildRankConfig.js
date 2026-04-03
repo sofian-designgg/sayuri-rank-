@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { connectMongo, getDb } = require('./mongoDb');
+const { normalizePanelRanksArray, tierPermKey, normalizePanelRankEntry } = require('../panelRankUtils');
 
 const DATA_FILE = path.join(__dirname, '..', '..', 'data', 'guildRankConfig.json');
 
@@ -50,7 +51,7 @@ function emptyGuildBlob() {
 
 /**
  * @param {Record<string, unknown> | null | undefined} g
- * @returns {{ roles: Record<string, string>, tierOverrides: Record<string, unknown>, panelRanks: { roleId: string, minMessages: number, minVocalHours: number }[], rankAnnounceChannelId: string | null, rankPanelFinished: boolean, memberRankNotify: Record<string, { p?: number, l?: number }> }}
+ * @returns {{ roles: Record<string, string>, tierOverrides: Record<string, unknown>, panelRanks: { permRoleId: string, aestheticRoleId: string, minMessages: number, minVocalHours: number }[], rankAnnounceChannelId: string | null, rankPanelFinished: boolean, memberRankNotify: Record<string, { p?: number, l?: number }> }}
  */
 function normalizeGuildBlob(g) {
   if (!g) return { ...emptyGuildBlob() };
@@ -58,7 +59,7 @@ function normalizeGuildBlob(g) {
   return {
     roles: { ...(g.roles || {}) },
     tierOverrides: { ...(g.tierOverrides || {}) },
-    panelRanks: Array.isArray(g.panelRanks) ? g.panelRanks.map((r) => ({ ...r })) : [],
+    panelRanks: normalizePanelRanksArray(g.panelRanks),
     rankAnnounceChannelId:
       g.rankAnnounceChannelId != null && String(g.rankAnnounceChannelId).trim() !== ''
         ? String(g.rankAnnounceChannelId).trim()
@@ -135,32 +136,40 @@ async function saveGuildBlob(id, blob) {
   saveAllFile(all);
 }
 
-/** @returns {Promise<{ roles: Record<string, string>, tierOverrides: Record<string, unknown>, panelRanks: { roleId: string, minMessages: number, minVocalHours: number }[], rankAnnounceChannelId: string | null, rankPanelFinished: boolean, memberRankNotify: Record<string, { p?: number, l?: number }> }>} */
+/** @returns {Promise<{ roles: Record<string, string>, tierOverrides: Record<string, unknown>, panelRanks: { permRoleId: string, aestheticRoleId: string, minMessages: number, minVocalHours: number }[], rankAnnounceChannelId: string | null, rankPanelFinished: boolean, memberRankNotify: Record<string, { p?: number, l?: number }> }>} */
 async function getGuildConfig(guildId) {
   const id = normalizeGuildKey(guildId);
   if (!id) return normalizeGuildBlob(null);
   return loadGuildBlob(id);
 }
 
-async function upsertPanelRank(guildId, { roleId, minMessages, minVocalHours }) {
+async function upsertPanelRank(guildId, { permRoleId, aestheticRoleId, minMessages, minVocalHours }) {
   const id = normalizeGuildKey(guildId);
   if (!id) return;
+  const perm = String(permRoleId ?? '').trim();
+  if (!perm) return;
+  const aes = String(aestheticRoleId ?? perm).trim();
   const cur = await loadGuildBlob(id);
-  const arr = cur.panelRanks.filter((r) => r.roleId !== String(roleId));
-  arr.push({
-    roleId: String(roleId),
-    minMessages: Math.max(0, Math.floor(Number(minMessages) || 0)),
-    minVocalHours: Math.max(0, Number(minVocalHours) || 0),
-  });
+  const arr = cur.panelRanks.filter((r) => tierPermKey(r) !== perm);
+  arr.push(
+    normalizePanelRankEntry({
+      permRoleId: perm,
+      aestheticRoleId: aes || perm,
+      minMessages,
+      minVocalHours,
+    }),
+  );
   cur.panelRanks = arr;
   await saveGuildBlob(id, cur);
 }
 
-async function removePanelRank(guildId, roleId) {
+async function removePanelRank(guildId, permRoleId) {
   const id = normalizeGuildKey(guildId);
   if (!id) return;
+  const key = String(permRoleId ?? '').trim();
+  if (!key) return;
   const cur = await loadGuildBlob(id);
-  cur.panelRanks = cur.panelRanks.filter((r) => r.roleId !== String(roleId));
+  cur.panelRanks = cur.panelRanks.filter((r) => tierPermKey(r) !== key);
   await saveGuildBlob(id, cur);
 }
 

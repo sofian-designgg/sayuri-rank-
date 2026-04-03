@@ -1,5 +1,5 @@
 /**
- * Embed + composants pour /panelrank
+ * Embed + composants pour /panelrank (2 rôles par palier : permissions + esthétique)
  */
 
 const {
@@ -15,47 +15,69 @@ const {
 } = require('discord.js');
 const { getGuildConfig } = require('./storage/guildRankConfig');
 const { sortPanelRanks } = require('./panelRankResolver');
+const { normalizePanelRankEntry, roleTag } = require('./panelRankUtils');
 
 async function formatRanksList(guild, guildId) {
   const { panelRanks } = await getGuildConfig(guildId);
   const sorted = sortPanelRanks(panelRanks);
-  if (sorted.length === 0) return '_Aucun palier — ajoute-en avec le menu rôle puis **Saisir prérequis**._';
+  if (sorted.length === 0) return '_Aucun palier — choisis **2 rôles** puis **Saisir prérequis**._';
   return sorted
     .map((r, i) => {
-      const role = guild.roles.cache.get(r.roleId);
-      const tag = role ? `<@&${r.roleId}>` : `\`${r.roleId}\``;
-      return `**${i + 1}.** ${tag} — **${r.minMessages.toLocaleString('fr-FR')}** msgs · **${r.minVocalHours}** h vocal`;
+      const n = normalizePanelRankEntry(r);
+      const p = roleTag(guild, n.permRoleId);
+      const a = roleTag(guild, n.aestheticRoleId);
+      return `**${i + 1}.** Perm ${p} · Esth. ${a} — **${n.minMessages.toLocaleString('fr-FR')}** msgs · **${n.minVocalHours}** h vocal`;
     })
     .join('\n');
 }
 
-async function buildPanelrankPayload(guild, selectedRoleId = null) {
+/**
+ * @param {import('discord.js').Guild} guild
+ * @param {{ permRoleId?: string, aestheticRoleId?: string }} [pending]
+ */
+async function buildPanelrankPayload(guild, pending = {}) {
   const ranksList = await formatRanksList(guild, guild.id);
-  const selLine = selectedRoleId
-    ? `\n\n✅ **Rôle sélectionné :** <@&${selectedRoleId}> — clique **Saisir prérequis**.`
-    : '';
+  const lines = [];
+  if (pending.permRoleId) {
+    lines.push(`✅ **Rôle permissions :** <@&${pending.permRoleId}>`);
+  }
+  if (pending.aestheticRoleId) {
+    lines.push(`✅ **Rôle esthétique :** <@&${pending.aestheticRoleId}>`);
+  }
+  const selBlock =
+    lines.length > 0
+      ? `\n\n${lines.join('\n')}\n\n_Quand les **deux** sont choisis, clique **Saisir prérequis**._`
+      : '';
+
   const embed = new EmbedBuilder()
     .setColor(0xf4b6c2)
-    .setTitle('Paliers Sayuri (rôles + stats)')
+    .setTitle('Paliers Sayuri (2 rôles par palier)')
     .setDescription(
       [
-        'Définis **un rôle Discord** par palier et les **minimums** (messages + heures en vocal) pour y accéder sur la **carte /rank**.',
+        'Chaque palier = **rôle permissions** (hiérarchie / accès) + **rôle esthétique** (couleur, déco).',
+        'Les **minimums** messages + vocal s’appliquent au palier entier.',
         '',
         '**Étapes**',
-        '1. Choisis un **rôle** ci-dessous.',
-        '2. Clique **Saisir prérequis** et entre messages + heures vocales.',
+        '1. Menu **permissions** puis menu **esthétique**.',
+        '2. **Saisir prérequis** (messages + h vocal).',
         '3. Répète pour chaque palier (du plus faible au plus fort en général).',
         '',
         '**Paliers enregistrés**',
         ranksList,
-        selLine,
+        selBlock,
       ].join('\n'),
     )
-    .setFooter({ text: 'Réservé aux modérateurs · Données messages/vocal : branche ta BDD plus tard (mock pour l’instant)' });
+    .setFooter({ text: 'Réservé aux modérateurs' });
 
-  const rolePick = new RoleSelectMenuBuilder()
-    .setCustomId('panelrank_pick_role')
-    .setPlaceholder('Choisir un rôle pour ce palier…')
+  const pickPerm = new RoleSelectMenuBuilder()
+    .setCustomId('panelrank_pick_perm')
+    .setPlaceholder('1. Rôle permissions / hiérarchie…')
+    .setMinValues(1)
+    .setMaxValues(1);
+
+  const pickAesthetic = new RoleSelectMenuBuilder()
+    .setCustomId('panelrank_pick_aesthetic')
+    .setPlaceholder('2. Rôle esthétique / visuel…')
     .setMinValues(1)
     .setMaxValues(1);
 
@@ -67,7 +89,8 @@ async function buildPanelrankPayload(guild, selectedRoleId = null) {
   const { panelRanks } = await getGuildConfig(guild.id);
   const sorted = sortPanelRanks(panelRanks);
   const rows = [
-    new ActionRowBuilder().addComponents(rolePick),
+    new ActionRowBuilder().addComponents(pickPerm),
+    new ActionRowBuilder().addComponents(pickAesthetic),
     new ActionRowBuilder().addComponents(btn),
   ];
 
@@ -77,12 +100,14 @@ async function buildPanelrankPayload(guild, selectedRoleId = null) {
       .setPlaceholder('Supprimer un palier…')
       .addOptions(
         sorted.slice(0, 25).map((r) => {
-          const role = guild.roles.cache.get(r.roleId);
-          const label = (role?.name ?? r.roleId).slice(0, 100);
+          const n = normalizePanelRankEntry(r);
+          const rp = guild.roles.cache.get(n.permRoleId);
+          const ra = guild.roles.cache.get(n.aestheticRoleId);
+          const label = `${rp?.name ?? n.permRoleId} / ${ra?.name ?? n.aestheticRoleId}`.slice(0, 100);
           return {
-            label: label.length ? label : r.roleId,
-            description: `${r.minMessages} msgs · ${r.minVocalHours}h`.slice(0, 100),
-            value: r.roleId,
+            label: label.length ? label : n.permRoleId,
+            description: `${n.minMessages} msgs · ${n.minVocalHours}h`.slice(0, 100),
+            value: n.permRoleId,
           };
         }),
       );

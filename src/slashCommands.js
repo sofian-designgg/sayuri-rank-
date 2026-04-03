@@ -19,7 +19,7 @@ const rankCommand = new SlashCommandBuilder()
 
 const panelrankCommand = new SlashCommandBuilder()
   .setName('panelrank')
-  .setDescription('Panneau : définir les paliers (rôle + messages + heures vocal)')
+  .setDescription('Panneau : paliers = rôle perm + rôle esthétique + messages + h vocal')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
 
 const setchannelrankCommand = new SlashCommandBuilder()

@@ -4,12 +4,13 @@
 
 const { EmbedBuilder } = require('discord.js');
 const { sortPanelRanks } = require('./panelRankResolver');
+const { normalizePanelRankEntry, roleTag } = require('./panelRankUtils');
 
 const MAX_DESC = 3900;
 
 /**
  * @param {import('discord.js').Guild} guild
- * @param {{ panelRanks: { roleId: string, minMessages: number, minVocalHours: number }[] }} guildConfig
+ * @param {{ panelRanks: object[] }} guildConfig
  * @returns {EmbedBuilder[]}
  */
 function buildConditionPanelEmbeds(guild, guildConfig) {
@@ -24,17 +25,21 @@ function buildConditionPanelEmbeds(guild, guildConfig) {
   }
 
   const lines = sorted.map((r, i) => {
-    const role = guild.roles.cache.get(r.roleId);
-    const name = role?.name ?? `ID ${r.roleId}`;
+    const n = normalizePanelRankEntry(r);
+    const p = roleTag(guild, n.permRoleId);
+    const a = roleTag(guild, n.aestheticRoleId);
+    const pn = guild.roles.cache.get(n.permRoleId)?.name ?? n.permRoleId;
+    const an = guild.roles.cache.get(n.aestheticRoleId)?.name ?? n.aestheticRoleId;
     return (
-      `**${i + 1}.** ${role ? `<@&${r.roleId}>` : `\`${r.roleId}\``} — **${name}**\n` +
-      `  · Messages minimum : **${r.minMessages.toLocaleString('fr-FR')}**\n` +
-      `  · Heures vocal minimum : **${r.minVocalHours}**`
+      `**${i + 1}.** **Perm** ${p} (${pn})\n` +
+      `  **Esth.** ${a} (${an})\n` +
+      `  · Messages minimum : **${n.minMessages.toLocaleString('fr-FR')}**\n` +
+      `  · Heures vocal minimum : **${n.minVocalHours}**`
     );
   });
 
   const header =
-    'Palier le plus accessible en haut, le plus exigeant en bas (ordre des prérequis).\n\n';
+    'Chaque ligne = **2 rôles** (permissions + esthétique). Ordre du plus accessible au plus exigeant.\n\n';
   const chunks = [];
   let buf = header;
   for (const line of lines) {

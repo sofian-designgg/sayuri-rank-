@@ -456,7 +456,7 @@ function drawStatsPanel(ctx, x, y, w, h) {
  *   boostStatus?: string,
  *   username?: string
  * }} data
- * @param {{ roles?: Record<string, string>, tierOverrides?: Record<string, { name?: string, requis?: string[] }>, panelRanks?: { roleId: string, minMessages: number, minVocalHours: number }[] }} [guildConfig]
+ * @param {{ roles?: Record<string, string>, tierOverrides?: Record<string, { name?: string, requis?: string[] }>, panelRanks?: { permRoleId?: string, aestheticRoleId?: string, roleId?: string, minMessages: number, minVocalHours: number }[] }} [guildConfig]
  * @param {import('discord.js').Guild | null} [guild] — requis si panelRanks est utilisé (noms de rôles).
  */
 async function generateSayuriCard(member, data, guildConfig = {}, guild = null) {

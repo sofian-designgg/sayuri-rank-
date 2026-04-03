@@ -22,7 +22,12 @@ const {
   setRankPanelFinished,
 } = require('./storage/guildRankConfig');
 const { buildPanelrankPayload, buildPrereqModal } = require('./panelrankUi');
-const { setPendingRole, getPendingRole, clearPendingRole } = require('./pendingPanelRank');
+const {
+  setPendingPanelRoles,
+  getPendingPanelRoles,
+  hasBothPendingRoles,
+  clearPendingPanelRoles,
+} = require('./pendingPanelRank');
 const { maybeAnnounceRankUp } = require('./rankAnnounce');
 const { buildConditionPanelEmbeds } = require('./conditionPanelEmbed');
 const { slashCommandsJson } = require('./slashCommands');
@@ -172,7 +177,10 @@ client.on('interactionCreate', async (interaction) => {
           });
           return;
         }
-        const payload = await buildPanelrankPayload(interaction.guild, null);
+        const payload = await buildPanelrankPayload(
+          interaction.guild,
+          getPendingPanelRoles(interaction.guild.id, interaction.user.id) ?? {},
+        );
         await interaction.reply({
           ...payload,
           flags: MessageFlags.Ephemeral,
@@ -303,10 +311,21 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.guild) return;
 
-    if (interaction.isRoleSelectMenu() && interaction.customId === 'panelrank_pick_role') {
+    if (
+      interaction.isRoleSelectMenu() &&
+      (interaction.customId === 'panelrank_pick_perm' ||
+        interaction.customId === 'panelrank_pick_aesthetic')
+    ) {
       const role = interaction.roles.first();
-      if (role) setPendingRole(interaction.guild.id, interaction.user.id, role.id);
-      const payload = await buildPanelrankPayload(interaction.guild, role?.id ?? null);
+      if (role) {
+        if (interaction.customId === 'panelrank_pick_perm') {
+          setPendingPanelRoles(interaction.guild.id, interaction.user.id, { permRoleId: role.id });
+        } else {
+          setPendingPanelRoles(interaction.guild.id, interaction.user.id, { aestheticRoleId: role.id });
+        }
+      }
+      const pend = getPendingPanelRoles(interaction.guild.id, interaction.user.id) ?? {};
+      const payload = await buildPanelrankPayload(interaction.guild, pend);
       try {
         await interaction.update(payload);
       } catch (e) {
@@ -322,10 +341,10 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId === 'panelrank_open_modal') {
-      const rid = getPendingRole(interaction.guild.id, interaction.user.id);
-      if (!rid) {
+      if (!hasBothPendingRoles(interaction.guild.id, interaction.user.id)) {
         await interaction.reply({
-          content: 'Choisis d’abord un **rôle** dans le menu.',
+          content:
+            'Choisis un **rôle permissions** et un **rôle esthétique** dans les deux menus (en haut).',
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -335,10 +354,10 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.isModalSubmit() && interaction.customId === 'panelrank_modal') {
-      const rid = getPendingRole(interaction.guild.id, interaction.user.id);
-      if (!rid) {
+      const pend = getPendingPanelRoles(interaction.guild.id, interaction.user.id);
+      if (!pend?.permRoleId || !pend?.aestheticRoleId) {
         await interaction.reply({
-          content: 'Session expirée — refais **/panelrank** et choisis un rôle.',
+          content: 'Session expirée — refais **/panelrank** et choisis les **deux** rôles.',
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -362,13 +381,15 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
       await upsertPanelRank(interaction.guild.id, {
-        roleId: rid,
+        permRoleId: pend.permRoleId,
+        aestheticRoleId: pend.aestheticRoleId,
         minMessages,
         minVocalHours,
       });
-      clearPendingRole(interaction.guild.id, interaction.user.id);
+      clearPendingPanelRoles(interaction.guild.id, interaction.user.id);
       await interaction.reply({
-        content: `Palier enregistré pour <@&${rid}> : **${minMessages}** messages, **${minVocalHours}** h vocal. Utilise **/panelrank** pour voir la liste ou **/rank** pour la carte.`,
+        content:
+          `Palier enregistré — **Perm** <@&${pend.permRoleId}> · **Esth.** <@&${pend.aestheticRoleId}> : **${minMessages}** msgs, **${minVocalHours}** h vocal.`,
         flags: MessageFlags.Ephemeral,
       });
       return;

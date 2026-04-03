@@ -1,12 +1,16 @@
 /**
  * Paliers /panelrank : tri par difficulté, palier actuel = dernier seuil atteint (messages ET vocal).
+ * Chaque palier : rôle permissions + rôle esthétique.
  */
 
+const { normalizePanelRankEntry, normalizePanelRanksArray } = require('./panelRankUtils');
+
 /**
- * @param {{ roleId: string, minMessages: number, minVocalHours: number }[]} ranks
+ * @param {{ permRoleId?: string, aestheticRoleId?: string, roleId?: string, minMessages: number, minVocalHours: number }[]} ranks
  */
 function sortPanelRanks(ranks) {
-  return [...ranks].sort((a, b) => {
+  const norm = normalizePanelRanksArray(ranks);
+  return norm.sort((a, b) => {
     const da = a.minVocalHours * 1e12 + a.minMessages;
     const db = b.minVocalHours * 1e12 + b.minMessages;
     return da - db;
@@ -14,11 +18,29 @@ function sortPanelRanks(ranks) {
 }
 
 /**
+ * @param {import('discord.js').GuildMember | null} member
+ * @param {{ permRoleId: string, aestheticRoleId: string }} rank
+ */
+function memberHasPanelTierRoles(member, rank) {
+  if (!member?.roles?.cache) return false;
+  const n = normalizePanelRankEntry(rank);
+  const hasP = member.roles.cache.has(n.permRoleId);
+  const hasA = member.roles.cache.has(n.aestheticRoleId);
+  if (n.permRoleId === n.aestheticRoleId) return hasP;
+  return hasP && hasA;
+}
+
+function shortName(s, max) {
+  const t = String(s || '');
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/**
  * @param {import('discord.js').Guild | null} guild
  * @param {number} vocalHours
  * @param {number} messageCount
- * @param {{ roleId: string, minMessages: number, minVocalHours: number }[]} panelRanks
- * @param {import('discord.js').GuildMember | null} [member] — palier le plus haut parmi les rôles panel possédés
+ * @param {object[]} panelRanks
+ * @param {import('discord.js').GuildMember | null} [member]
  */
 function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, member = null) {
   const ranks = sortPanelRanks(panelRanks);
@@ -33,8 +55,7 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
   let roleIdx = -1;
   if (member?.roles?.cache) {
     for (let i = 0; i < ranks.length; i++) {
-      const rid = String(ranks[i].roleId);
-      if (member.roles.cache.has(rid)) roleIdx = Math.max(roleIdx, i);
+      if (memberHasPanelTierRoles(member, ranks[i])) roleIdx = Math.max(roleIdx, i);
     }
   }
 
@@ -56,10 +77,18 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
     percent = Math.min(100, Math.max(0, ((pMsg + pVoc) / 2) * 100));
   }
 
+  const displayPairName = (rank) => {
+    const n = normalizePanelRankEntry(rank);
+    const a = roleName(n.permRoleId);
+    const b = roleName(n.aestheticRoleId);
+    if (n.permRoleId === n.aestheticRoleId) return a;
+    return `${shortName(a, 16)} · ${shortName(b, 16)}`;
+  };
+
   const currentDisplay = current
     ? {
-        id: current.roleId,
-        name: roleName(current.roleId),
+        id: normalizePanelRankEntry(current).permRoleId,
+        name: displayPairName(current),
         minVocalHours: current.minVocalHours,
         minMessages: current.minMessages,
         requis: [
@@ -77,8 +106,8 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
 
   const nextDisplay = next
     ? {
-        id: next.roleId,
-        name: roleName(next.roleId),
+        id: normalizePanelRankEntry(next).permRoleId,
+        name: displayPairName(next),
         minVocalHours: next.minVocalHours,
         minMessages: next.minMessages,
         requis: [
@@ -103,4 +132,5 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
 module.exports = {
   sortPanelRanks,
   resolvePanelRankState,
+  memberHasPanelTierRoles,
 };
