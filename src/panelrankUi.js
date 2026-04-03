@@ -1,5 +1,5 @@
 /**
- * Embed + composants pour /panelrank (2 rôles par palier : permissions + esthétique)
+ * Embed + composants /panelrank : 2 rôles, navigation ◀ ▶, nouveau palier, vocal en **minutes**.
  */
 
 const {
@@ -7,7 +7,6 @@ const {
   RoleSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  StringSelectMenuBuilder,
   EmbedBuilder,
   ModalBuilder,
   TextInputBuilder,
@@ -20,99 +19,110 @@ const { normalizePanelRankEntry, roleTag } = require('./panelRankUtils');
 async function formatRanksList(guild, guildId) {
   const { panelRanks } = await getGuildConfig(guildId);
   const sorted = sortPanelRanks(panelRanks);
-  if (sorted.length === 0) return '_Aucun palier — choisis **2 rôles** puis **Saisir prérequis**._';
+  if (sorted.length === 0) return '_Aucun palier — utilise **+ Nouveau** ou les flèches après avoir choisi 2 rôles._';
   return sorted
     .map((r, i) => {
       const n = normalizePanelRankEntry(r);
       const p = roleTag(guild, n.permRoleId);
       const a = roleTag(guild, n.aestheticRoleId);
-      return `**${i + 1}.** Perm ${p} · Esth. ${a} — **${n.minMessages.toLocaleString('fr-FR')}** msgs · **${n.minVocalHours}** h vocal`;
+      return `**${i + 1}.** Perm ${p} · Esth. ${a} — **${n.minMessages.toLocaleString('fr-FR')}** msgs · **${n.minVocalMinutes}** min vocal`;
     })
     .join('\n');
 }
 
 /**
  * @param {import('discord.js').Guild} guild
- * @param {{ permRoleId?: string, aestheticRoleId?: string }} [pending]
+ * @param {{
+ *   slotIndex: number,
+ *   editingTierId?: string,
+ *   permRoleId?: string,
+ *   aestheticRoleId?: string,
+ * }} session
  */
-async function buildPanelrankPayload(guild, pending = {}) {
+async function buildPanelrankPayload(guild, session) {
+  const { panelRanks } = await getGuildConfig(guild.id);
+  const sorted = sortPanelRanks(panelRanks);
+  const maxSlot = sorted.length;
+  let slot = session.slotIndex;
+  if (slot === undefined || slot === null || Number.isNaN(slot)) slot = maxSlot;
+  slot = Math.max(0, Math.min(slot, maxSlot));
+
   const ranksList = await formatRanksList(guild, guild.id);
+
+  const posLabel =
+    slot < maxSlot
+      ? `**Palier ${slot + 1} / ${maxSlot}** (tri : faible → fort)`
+      : `**Nouveau palier** (${maxSlot + 1}ᵉ emplacement)`;
+
   const lines = [];
-  if (pending.permRoleId) {
-    lines.push(`✅ **Rôle permissions :** <@&${pending.permRoleId}>`);
-  }
-  if (pending.aestheticRoleId) {
-    lines.push(`✅ **Rôle esthétique :** <@&${pending.aestheticRoleId}>`);
-  }
+  if (session.permRoleId) lines.push(`✅ **Rôle permissions :** <@&${session.permRoleId}>`);
+  if (session.aestheticRoleId) lines.push(`✅ **Rôle esthétique :** <@&${session.aestheticRoleId}>`);
   const selBlock =
     lines.length > 0
-      ? `\n\n${lines.join('\n')}\n\n_Quand les **deux** sont choisis, clique **Saisir prérequis**._`
+      ? `\n\n${lines.join('\n')}\n\n_Avec les **deux** rôles choisis → **Prérequis**._`
       : '';
 
   const embed = new EmbedBuilder()
     .setColor(0xf4b6c2)
-    .setTitle('Paliers Sayuri (2 rôles par palier)')
+    .setTitle('Paliers Sayuri')
     .setDescription(
       [
-        'Chaque palier = **rôle permissions** (hiérarchie / accès) + **rôle esthétique** (couleur, déco).',
-        'Les **minimums** messages + vocal s’appliquent au palier entier.',
+        '📍 ' + posLabel,
         '',
-        '**Étapes**',
-        '1. Menu **permissions** puis menu **esthétique**.',
-        '2. **Saisir prérequis** (messages + h vocal).',
-        '3. Répète pour chaque palier (du plus faible au plus fort en général).',
+        'Chaque palier peut utiliser **les mêmes rôles** qu’un autre (seuil différent).',
+        'Temps vocal des prérequis en **minutes**.',
         '',
         '**Paliers enregistrés**',
         ranksList,
         selBlock,
       ].join('\n'),
     )
-    .setFooter({ text: 'Réservé aux modérateurs' });
+    .setFooter({ text: '◀ ▶ naviguer · + Nouveau · Supprimer = palier affiché' });
 
   const pickPerm = new RoleSelectMenuBuilder()
     .setCustomId('panelrank_pick_perm')
-    .setPlaceholder('1. Rôle permissions / hiérarchie…')
+    .setPlaceholder('Rôle permissions…')
     .setMinValues(1)
     .setMaxValues(1);
 
   const pickAesthetic = new RoleSelectMenuBuilder()
     .setCustomId('panelrank_pick_aesthetic')
-    .setPlaceholder('2. Rôle esthétique / visuel…')
+    .setPlaceholder('Rôle esthétique…')
     .setMinValues(1)
     .setMaxValues(1);
 
-  const btn = new ButtonBuilder()
+  const btnPrereq = new ButtonBuilder()
     .setCustomId('panelrank_open_modal')
-    .setLabel('Saisir prérequis (messages + h vocal)')
+    .setLabel('Prérequis')
     .setStyle(ButtonStyle.Primary);
 
-  const { panelRanks } = await getGuildConfig(guild.id);
-  const sorted = sortPanelRanks(panelRanks);
+  const btnPrev = new ButtonBuilder()
+    .setCustomId('panelrank_nav_prev')
+    .setLabel('◀')
+    .setStyle(ButtonStyle.Secondary);
+
+  const btnNext = new ButtonBuilder()
+    .setCustomId('panelrank_nav_next')
+    .setLabel('▶')
+    .setStyle(ButtonStyle.Secondary);
+
+  const btnNew = new ButtonBuilder()
+    .setCustomId('panelrank_nav_new')
+    .setLabel('+ Nouveau')
+    .setStyle(ButtonStyle.Success);
+
+  const btnDelete = new ButtonBuilder()
+    .setCustomId('panelrank_delete_current')
+    .setLabel('Supprimer ce palier')
+    .setStyle(ButtonStyle.Danger)
+    .setDisabled(slot >= maxSlot);
+
   const rows = [
     new ActionRowBuilder().addComponents(pickPerm),
     new ActionRowBuilder().addComponents(pickAesthetic),
-    new ActionRowBuilder().addComponents(btn),
+    new ActionRowBuilder().addComponents(btnPrereq, btnPrev, btnNext, btnNew),
+    new ActionRowBuilder().addComponents(btnDelete),
   ];
-
-  if (sorted.length > 0) {
-    const remove = new StringSelectMenuBuilder()
-      .setCustomId('panelrank_remove')
-      .setPlaceholder('Supprimer un palier…')
-      .addOptions(
-        sorted.slice(0, 25).map((r) => {
-          const n = normalizePanelRankEntry(r);
-          const rp = guild.roles.cache.get(n.permRoleId);
-          const ra = guild.roles.cache.get(n.aestheticRoleId);
-          const label = `${rp?.name ?? n.permRoleId} / ${ra?.name ?? n.aestheticRoleId}`.slice(0, 100);
-          return {
-            label: label.length ? label : n.permRoleId,
-            description: `${n.minMessages} msgs · ${n.minVocalHours}h`.slice(0, 100),
-            value: n.permRoleId,
-          };
-        }),
-      );
-    rows.push(new ActionRowBuilder().addComponents(remove));
-  }
 
   return { embeds: [embed], components: rows };
 }
@@ -125,7 +135,7 @@ function buildPrereqModal() {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('panelrank_msgs')
-          .setLabel('Nombre de messages minimum')
+          .setLabel('Messages minimum')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setPlaceholder('ex: 500'),
@@ -133,10 +143,10 @@ function buildPrereqModal() {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('panelrank_vocal')
-          .setLabel('Heures vocales minimum')
+          .setLabel('Minutes en vocal minimum')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
-          .setPlaceholder('ex: 24 ou 12.5'),
+          .setPlaceholder('ex: 120 (= 2 h)'),
       ),
     );
 }

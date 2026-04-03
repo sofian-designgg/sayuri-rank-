@@ -33,13 +33,13 @@ function buildConditionPanelEmbeds(guild, guildConfig) {
     return (
       `**${i + 1}.** **Perm** ${p} (${pn})\n` +
       `  **Esth.** ${a} (${an})\n` +
-      `  · Messages minimum : **${n.minMessages.toLocaleString('fr-FR')}**\n` +
-      `  · Heures vocal minimum : **${n.minVocalHours}**`
+      `  · Messages : **${n.minMessages.toLocaleString('fr-FR')}**\n` +
+      `  · Vocal : **${n.minVocalMinutes}** min`
     );
   });
 
   const header =
-    'Chaque ligne = **2 rôles** (permissions + esthétique). Ordre du plus accessible au plus exigeant.\n\n';
+    'Deux rôles par palier (permissions + esthétique). Ordre du plus accessible au plus exigeant.\n\n';
   const chunks = [];
   let buf = header;
   for (const line of lines) {

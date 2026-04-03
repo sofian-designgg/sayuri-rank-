@@ -282,10 +282,14 @@ function drawCurrentRankPanel(ctx, ix, iy, inner, current, img) {
   ctx.shadowBlur = 0;
   ctx.font = '600 11px "Segoe UI", sans-serif';
   ctx.fillStyle = COLORS.ivory;
+  const vmin =
+    current.minVocalMinutes != null && current.minVocalMinutes !== undefined
+      ? Number(current.minVocalMinutes)
+      : Math.round((Number(current.minVocalHours) || 0) * 60);
   const seuilLine =
     current.minMessages != null && current.minMessages !== undefined
-      ? `≥ ${Number(current.minMessages).toLocaleString('fr-FR')} msgs · ${current.minVocalHours} h vocal`
-      : `Seuil : ≥ ${current.minVocalHours} h vocales`;
+      ? `≥ ${Number(current.minMessages).toLocaleString('fr-FR')} msgs · ${vmin} min vocal`
+      : `Seuil : ≥ ${vmin} min vocal`;
   ctx.fillText(seuilLine, ix + inner / 2, iy + inner * (img ? 0.88 : 0.62));
   if (!img) {
     ctx.font = 'italic 10px "Segoe UI", sans-serif';
@@ -354,18 +358,23 @@ function drawNextRankPanel(ctx, ix, iy, inner, next, isMax, img, vocalHours, mes
   ctx.font = 'italic 9px "Segoe UI", sans-serif';
   ctx.fillStyle = 'rgba(255,183,197,0.85)';
   if (top < maxY - 10) {
+    const nextVmin =
+      next.minVocalMinutes != null && next.minVocalMinutes !== undefined
+        ? Number(next.minVocalMinutes)
+        : Math.round((Number(next.minVocalHours) || 0) * 60);
+    const vocMinUser = Math.max(0, Number(vocalHours) || 0) * 60;
     if (next.minMessages != null && next.minMessages !== undefined) {
       const needM = Math.max(0, next.minMessages - messageCount);
-      const needV = Math.max(0, next.minVocalHours - vocalHours);
+      const needV = Math.max(0, nextVmin - vocMinUser);
       ctx.fillText(
-        `Manque ~${needM.toLocaleString('fr-FR')} msgs · ~${needV.toFixed(1)} h vocal`,
+        `Manque ~${needM.toLocaleString('fr-FR')} msgs · ~${needV} min vocal`,
         ix + inner / 2,
         maxY - 4,
       );
     } else {
-      const need = Math.max(0, next.minVocalHours - vocalHours);
+      const need = Math.max(0, nextVmin - vocMinUser);
       if (need > 0) {
-        ctx.fillText(`Encore ~${need.toFixed(1)} h vocales pour le palier`, ix + inner / 2, maxY - 4);
+        ctx.fillText(`Encore ~${need} min vocal pour le palier`, ix + inner / 2, maxY - 4);
       }
     }
   }
@@ -456,7 +465,7 @@ function drawStatsPanel(ctx, x, y, w, h) {
  *   boostStatus?: string,
  *   username?: string
  * }} data
- * @param {{ roles?: Record<string, string>, tierOverrides?: Record<string, { name?: string, requis?: string[] }>, panelRanks?: { permRoleId?: string, aestheticRoleId?: string, roleId?: string, minMessages: number, minVocalHours: number }[] }} [guildConfig]
+ * @param {{ roles?: Record<string, string>, tierOverrides?: Record<string, { name?: string, requis?: string[] }>, panelRanks?: { permRoleId?: string, aestheticRoleId?: string, roleId?: string, tierId?: string, minMessages: number, minVocalMinutes?: number, minVocalHours?: number }[] }} [guildConfig]
  * @param {import('discord.js').Guild | null} [guild] — requis si panelRanks est utilisé (noms de rôles).
  */
 async function generateSayuriCard(member, data, guildConfig = {}, guild = null) {

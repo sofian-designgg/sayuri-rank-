@@ -1,25 +1,24 @@
 /**
- * Paliers /panelrank : tri par difficulté, palier actuel = dernier seuil atteint (messages ET vocal).
- * Chaque palier : rôle permissions + rôle esthétique.
+ * Paliers /panelrank : tri par difficulté, vocal comparé en **minutes** (stats mock encore en heures → ×60).
  */
 
 const { normalizePanelRankEntry, normalizePanelRanksArray } = require('./panelRankUtils');
 
 /**
- * @param {{ permRoleId?: string, aestheticRoleId?: string, roleId?: string, minMessages: number, minVocalHours: number }[]} ranks
+ * @param {object[]} ranks
  */
 function sortPanelRanks(ranks) {
   const norm = normalizePanelRanksArray(ranks);
   return norm.sort((a, b) => {
-    const da = a.minVocalHours * 1e12 + a.minMessages;
-    const db = b.minVocalHours * 1e12 + b.minMessages;
+    const da = a.minVocalMinutes * 1e12 + a.minMessages;
+    const db = b.minVocalMinutes * 1e12 + b.minMessages;
     return da - db;
   });
 }
 
 /**
  * @param {import('discord.js').GuildMember | null} member
- * @param {{ permRoleId: string, aestheticRoleId: string }} rank
+ * @param {object} rank
  */
 function memberHasPanelTierRoles(member, rank) {
   if (!member?.roles?.cache) return false;
@@ -37,19 +36,19 @@ function shortName(s, max) {
 
 /**
  * @param {import('discord.js').Guild | null} guild
- * @param {number} vocalHours
+ * @param {number} vocalHours — données membre (décimal)
  * @param {number} messageCount
  * @param {object[]} panelRanks
  * @param {import('discord.js').GuildMember | null} [member]
  */
 function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, member = null) {
   const ranks = sortPanelRanks(panelRanks);
-  const voc = Math.max(0, Number(vocalHours) || 0);
+  const vocMin = Math.max(0, Number(vocalHours) || 0) * 60;
   const msg = Math.max(0, Math.floor(Number(messageCount) || 0));
 
   let statsIdx = -1;
   for (let i = 0; i < ranks.length; i++) {
-    if (msg >= ranks[i].minMessages && voc >= ranks[i].minVocalHours) statsIdx = i;
+    if (msg >= ranks[i].minMessages && vocMin >= ranks[i].minVocalMinutes) statsIdx = i;
   }
 
   let roleIdx = -1;
@@ -73,7 +72,7 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
     const pMsg =
       next.minMessages <= 0 ? 1 : Math.min(1, msg / next.minMessages);
     const pVoc =
-      next.minVocalHours <= 0 ? 1 : Math.min(1, voc / next.minVocalHours);
+      next.minVocalMinutes <= 0 ? 1 : Math.min(1, vocMin / next.minVocalMinutes);
     percent = Math.min(100, Math.max(0, ((pMsg + pVoc) / 2) * 100));
   }
 
@@ -85,37 +84,33 @@ function resolvePanelRankState(guild, vocalHours, messageCount, panelRanks, memb
     return `${shortName(a, 16)} · ${shortName(b, 16)}`;
   };
 
+  const toDisplay = (rank) => {
+    const n = normalizePanelRankEntry(rank);
+    return {
+      id: n.permRoleId,
+      name: displayPairName(rank),
+      minMessages: n.minMessages,
+      minVocalMinutes: n.minVocalMinutes,
+      minVocalHours: n.minVocalMinutes / 60,
+      requis: [
+        `≥ ${n.minMessages.toLocaleString('fr-FR')} messages`,
+        `≥ ${n.minVocalMinutes.toLocaleString('fr-FR')} min en vocal`,
+      ],
+    };
+  };
+
   const currentDisplay = current
-    ? {
-        id: normalizePanelRankEntry(current).permRoleId,
-        name: displayPairName(current),
-        minVocalHours: current.minVocalHours,
-        minMessages: current.minMessages,
-        requis: [
-          `≥ ${current.minMessages.toLocaleString('fr-FR')} messages`,
-          `≥ ${current.minVocalHours} h vocales`,
-        ],
-      }
+    ? toDisplay(current)
     : {
         id: 'none',
         name: 'Aucun palier',
         minVocalHours: 0,
+        minVocalMinutes: 0,
         minMessages: 0,
         requis: ['Configure les paliers avec /panelrank'],
       };
 
-  const nextDisplay = next
-    ? {
-        id: normalizePanelRankEntry(next).permRoleId,
-        name: displayPairName(next),
-        minVocalHours: next.minVocalHours,
-        minMessages: next.minMessages,
-        requis: [
-          `≥ ${next.minMessages.toLocaleString('fr-FR')} messages`,
-          `≥ ${next.minVocalHours} h vocales`,
-        ],
-      }
-    : null;
+  const nextDisplay = next ? toDisplay(next) : null;
 
   return {
     ranks,

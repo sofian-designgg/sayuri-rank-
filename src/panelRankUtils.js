@@ -1,23 +1,33 @@
 /**
- * Modèle palier panel : rôle permissions + rôle esthétique (rétrocompat : ancien champ roleId).
+ * Modèle palier panel : tierId + rôle perm + rôle esthétique + prérequis (vocal en minutes).
  */
 
 /**
  * @param {Record<string, unknown>} r
- * @returns {{ permRoleId: string, aestheticRoleId: string, minMessages: number, minVocalHours: number }}
+ * @returns {{ tierId: string, permRoleId: string, aestheticRoleId: string, minMessages: number, minVocalMinutes: number }}
  */
 function normalizePanelRankEntry(r) {
-  const perm = String(r.permRoleId ?? r.roleId ?? '')
+  const raw = typeof r === 'object' && r ? r : {};
+  const perm = String(raw.permRoleId ?? raw.roleId ?? '')
     .trim()
     .replace(/^\uFEFF/, '');
-  const aes = String(r.aestheticRoleId ?? r.roleId ?? perm ?? '')
+  const aes = String(raw.aestheticRoleId ?? raw.roleId ?? perm ?? '')
     .trim()
     .replace(/^\uFEFF/, '');
+  const minMessages = Math.max(0, Math.floor(Number(raw.minMessages) || 0));
+  let minVocalMinutes;
+  if (raw.minVocalMinutes != null && raw.minVocalMinutes !== '' && Number.isFinite(Number(raw.minVocalMinutes))) {
+    minVocalMinutes = Math.max(0, Math.floor(Number(raw.minVocalMinutes)));
+  } else {
+    const h = Math.max(0, Number(raw.minVocalHours) || 0);
+    minVocalMinutes = Math.max(0, Math.floor(h * 60));
+  }
   return {
+    tierId: String(raw.tierId || '').trim(),
     permRoleId: perm,
     aestheticRoleId: aes || perm,
-    minMessages: Math.max(0, Math.floor(Number(r.minMessages) || 0)),
-    minVocalHours: Math.max(0, Number(r.minVocalHours) || 0),
+    minMessages,
+    minVocalMinutes,
   };
 }
 
@@ -29,9 +39,10 @@ function normalizePanelRanksArray(arr) {
   return arr.map((x) => normalizePanelRankEntry(typeof x === 'object' && x ? x : {}));
 }
 
-/** Clé stable d’un palier (upsert / suppression) = rôle permissions */
-function tierPermKey(rank) {
-  return normalizePanelRankEntry(rank).permRoleId;
+/** Identifiant stable du palier (Mongo / suppression). Vide si pas encore persisté. */
+function getTierId(rank) {
+  const t = normalizePanelRankEntry(rank).tierId;
+  return t || null;
 }
 
 /**
@@ -47,6 +58,6 @@ function roleTag(guild, rid) {
 module.exports = {
   normalizePanelRankEntry,
   normalizePanelRanksArray,
-  tierPermKey,
+  getTierId,
   roleTag,
 };

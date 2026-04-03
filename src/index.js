@@ -17,16 +17,18 @@ const {
   initStorage,
   getGuildConfig,
   upsertPanelRank,
-  removePanelRank,
+  removePanelRankByTierId,
   setRankAnnounceChannel,
   setRankPanelFinished,
 } = require('./storage/guildRankConfig');
 const { buildPanelrankPayload, buildPrereqModal } = require('./panelrankUi');
+const { sortPanelRanks } = require('./panelRankResolver');
 const {
   setPendingPanelRoles,
-  getPendingPanelRoles,
+  getPanelSession,
+  initPanelSession,
+  setSessionToSlot,
   hasBothPendingRoles,
-  clearPendingPanelRoles,
 } = require('./pendingPanelRank');
 const { maybeAnnounceRankUp } = require('./rankAnnounce');
 const { buildConditionPanelEmbeds } = require('./conditionPanelEmbed');
@@ -177,10 +179,14 @@ client.on('interactionCreate', async (interaction) => {
           });
           return;
         }
-        const payload = await buildPanelrankPayload(
-          interaction.guild,
-          getPendingPanelRoles(interaction.guild.id, interaction.user.id) ?? {},
+        const cfg0 = await getGuildConfig(interaction.guild.id);
+        initPanelSession(
+          interaction.guild.id,
+          interaction.user.id,
+          sortPanelRanks(cfg0.panelRanks),
         );
+        const sess = getPanelSession(interaction.guild.id, interaction.user.id);
+        const payload = await buildPanelrankPayload(interaction.guild, sess ?? {});
         await interaction.reply({
           ...payload,
           flags: MessageFlags.Ephemeral,
@@ -324,8 +330,8 @@ client.on('interactionCreate', async (interaction) => {
           setPendingPanelRoles(interaction.guild.id, interaction.user.id, { aestheticRoleId: role.id });
         }
       }
-      const pend = getPendingPanelRoles(interaction.guild.id, interaction.user.id) ?? {};
-      const payload = await buildPanelrankPayload(interaction.guild, pend);
+      const sess = getPanelSession(interaction.guild.id, interaction.user.id) ?? {};
+      const payload = await buildPanelrankPayload(interaction.guild, sess);
       try {
         await interaction.update(payload);
       } catch (e) {
@@ -353,9 +359,60 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
+    if (
+      interaction.isButton() &&
+      ['panelrank_nav_prev', 'panelrank_nav_next', 'panelrank_nav_new', 'panelrank_delete_current'].includes(
+        interaction.customId,
+      )
+    ) {
+      const cfg = await getGuildConfig(interaction.guild.id);
+      const sorted = sortPanelRanks(cfg.panelRanks);
+      let sess = getPanelSession(interaction.guild.id, interaction.user.id);
+      if (!sess) {
+        initPanelSession(interaction.guild.id, interaction.user.id, sorted);
+        sess = getPanelSession(interaction.guild.id, interaction.user.id);
+      }
+      const maxSlot = sorted.length;
+      let slot = sess?.slotIndex ?? maxSlot;
+      slot = Math.max(0, Math.min(slot, maxSlot));
+
+      if (interaction.customId === 'panelrank_nav_prev') {
+        setSessionToSlot(interaction.guild.id, interaction.user.id, sorted, slot - 1);
+      } else if (interaction.customId === 'panelrank_nav_next') {
+        setSessionToSlot(interaction.guild.id, interaction.user.id, sorted, slot + 1);
+      } else if (interaction.customId === 'panelrank_nav_new') {
+        setSessionToSlot(interaction.guild.id, interaction.user.id, sorted, maxSlot);
+      } else if (interaction.customId === 'panelrank_delete_current') {
+        if (slot >= maxSlot || !sess?.editingTierId) {
+          await interaction.reply({
+            content: 'Place-toi sur un **palier existant** (flèches) pour le supprimer.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        await removePanelRankByTierId(interaction.guild.id, sess.editingTierId);
+        const cfg2 = await getGuildConfig(interaction.guild.id);
+        const sorted2 = sortPanelRanks(cfg2.panelRanks);
+        const newSlot = Math.min(slot, sorted2.length);
+        setSessionToSlot(interaction.guild.id, interaction.user.id, sorted2, newSlot);
+      }
+
+      const sess2 = getPanelSession(interaction.guild.id, interaction.user.id) ?? {};
+      const payload = await buildPanelrankPayload(interaction.guild, sess2);
+      try {
+        await interaction.update(payload);
+      } catch (e) {
+        console.error('panelrank_nav:', e);
+        await interaction
+          .reply({ content: 'Erreur — rouvre `/panelrank`.', flags: MessageFlags.Ephemeral })
+          .catch(() => {});
+      }
+      return;
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'panelrank_modal') {
-      const pend = getPendingPanelRoles(interaction.guild.id, interaction.user.id);
-      if (!pend?.permRoleId || !pend?.aestheticRoleId) {
+      const sess = getPanelSession(interaction.guild.id, interaction.user.id);
+      if (!sess?.permRoleId || !sess?.aestheticRoleId) {
         await interaction.reply({
           content: 'Session expirée — refais **/panelrank** et choisis les **deux** rôles.',
           flags: MessageFlags.Ephemeral,
@@ -365,7 +422,7 @@ client.on('interactionCreate', async (interaction) => {
       const rawM = interaction.fields.getTextInputValue('panelrank_msgs').trim();
       const rawV = interaction.fields.getTextInputValue('panelrank_vocal').trim().replace(',', '.');
       const minMessages = parseInt(rawM, 10);
-      const minVocalHours = parseFloat(rawV);
+      const minVocalMinutes = parseInt(rawV, 10);
       if (!Number.isFinite(minMessages) || minMessages < 0) {
         await interaction.reply({
           content: 'Nombre de **messages** invalide (entier ≥ 0).',
@@ -373,40 +430,27 @@ client.on('interactionCreate', async (interaction) => {
         });
         return;
       }
-      if (!Number.isFinite(minVocalHours) || minVocalHours < 0) {
+      if (!Number.isFinite(minVocalMinutes) || minVocalMinutes < 0) {
         await interaction.reply({
-          content: '**Heures vocales** invalides (nombre ≥ 0, ex. 12 ou 12.5).',
+          content: '**Minutes vocales** invalides (entier ≥ 0, ex. 120 pour 2 h).',
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
       await upsertPanelRank(interaction.guild.id, {
-        permRoleId: pend.permRoleId,
-        aestheticRoleId: pend.aestheticRoleId,
+        tierId: sess.editingTierId || undefined,
+        permRoleId: sess.permRoleId,
+        aestheticRoleId: sess.aestheticRoleId,
         minMessages,
-        minVocalHours,
+        minVocalMinutes,
       });
-      clearPendingPanelRoles(interaction.guild.id, interaction.user.id);
+      const cfg3 = await getGuildConfig(interaction.guild.id);
+      initPanelSession(interaction.guild.id, interaction.user.id, sortPanelRanks(cfg3.panelRanks));
       await interaction.reply({
         content:
-          `Palier enregistré — **Perm** <@&${pend.permRoleId}> · **Esth.** <@&${pend.aestheticRoleId}> : **${minMessages}** msgs, **${minVocalHours}** h vocal.`,
+          `Palier enregistré — **Perm** <@&${sess.permRoleId}> · **Esth.** <@&${sess.aestheticRoleId}> : **${minMessages}** msgs, **${minVocalMinutes}** min vocal. Rouvre **/panelrank** pour continuer.`,
         flags: MessageFlags.Ephemeral,
       });
-      return;
-    }
-
-    if (interaction.isStringSelectMenu() && interaction.customId === 'panelrank_remove') {
-      const roleId = interaction.values[0];
-      await removePanelRank(interaction.guild.id, roleId);
-      const payload = await buildPanelrankPayload(interaction.guild);
-      try {
-        await interaction.update(payload);
-      } catch (e) {
-        console.error('panelrank_remove:', e);
-        await interaction
-          .reply({ content: 'Palier supprimé. Rouvre `/panelrank` si besoin.', flags: MessageFlags.Ephemeral })
-          .catch(() => {});
-      }
       return;
     }
   } catch (err) {
