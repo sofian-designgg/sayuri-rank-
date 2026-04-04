@@ -618,7 +618,7 @@ async function generateSayuriCard(member, data, guildConfig = {}, guild = null) 
   ctx.fillStyle = COLORS.ivory;
   const vocalStr = formatVocalHours(vocalHours);
   const nextName = state.mergedNext ? state.mergedNext.name : '—';
-  const l1 = `Prochain palier (${nextName}) dans : ${data.timeLeft ?? '—'}`;
+  const l1 = `Palier suivant (${nextName}) · ${data.timeLeft ?? '—'}`;
   const l2 = `Total heures vocales : ${vocalStr}`;
   const l3 = usePanel
     ? `Total messages : ${messageCount.toLocaleString('fr-FR')}`

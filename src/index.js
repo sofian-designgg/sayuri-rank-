@@ -12,7 +12,8 @@ const {
   MessageFlags,
   InteractionType,
 } = require('discord.js');
-const { generateSayuriCard, mockRankData } = require('./generateSayuriCard');
+const { generateSayuriCard } = require('./generateSayuriCard');
+const { buildRankCardData } = require('./rankCardData');
 const {
   initStorage,
   getGuildConfig,
@@ -20,6 +21,8 @@ const {
   removePanelRankByTierId,
   setRankAnnounceChannel,
   setRankPanelFinished,
+  incrementMemberMessages,
+  addMemberVocalMinutes,
 } = require('./storage/guildRankConfig');
 const { buildPanelrankPayload, buildPrereqModal } = require('./panelrankUi');
 const { sortPanelRanks } = require('./panelRankResolver');
@@ -70,7 +73,12 @@ async function registerSlashCommands() {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
 });
 
 client.once('ready', async () => {
@@ -90,6 +98,51 @@ client.once('ready', async () => {
 
 client.on('error', (e) => console.error('Discord client error:', e));
 process.on('unhandledRejection', (r) => console.error('unhandledRejection:', r));
+
+/** Vocal : début de session par membre (perte si redémarrage bot). */
+const voiceSessionStartedAt = new Map();
+
+client.on('messageCreate', async (msg) => {
+  try {
+    if (!msg.guild || msg.author.bot) return;
+    await incrementMemberMessages(msg.guild.id, msg.author.id, 1);
+  } catch (e) {
+    console.error('messageCreate stats:', e);
+  }
+});
+
+client.on('voiceStateUpdate', async (oldS, newS) => {
+  try {
+    const guild = newS.guild;
+    const member = newS.member ?? oldS.member;
+    if (!guild || !member?.user || member.user.bot) return;
+    const guildId = guild.id;
+    const userId = member.id;
+    const key = `${guildId}:${userId}`;
+    const oldCh = oldS.channelId;
+    const newCh = newS.channelId;
+    if (oldCh === newCh) return;
+
+    const flush = async () => {
+      const started = voiceSessionStartedAt.get(key);
+      voiceSessionStartedAt.delete(key);
+      if (started == null) return;
+      const mins = (Date.now() - started) / 60000;
+      await addMemberVocalMinutes(guildId, userId, mins);
+    };
+
+    if (oldCh && !newCh) {
+      await flush();
+    } else if (!oldCh && newCh) {
+      voiceSessionStartedAt.set(key, Date.now());
+    } else if (oldCh && newCh) {
+      await flush();
+      voiceSessionStartedAt.set(key, Date.now());
+    }
+  } catch (e) {
+    console.error('voiceStateUpdate stats:', e);
+  }
+});
 
 function isSlashCommand(interaction) {
   return (
@@ -137,7 +190,7 @@ client.on('interactionCreate', async (interaction) => {
         const guild =
           interaction.guild ?? (gid ? interaction.client.guilds.cache.get(gid) : null);
         const data = {
-          ...mockRankData,
+          ...buildRankCardData(guildConfig, interaction.member),
           username: interaction.member?.user?.username ?? interaction.user.username,
         };
         try {

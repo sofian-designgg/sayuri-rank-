@@ -47,6 +47,7 @@ function emptyGuildBlob() {
     rankAnnounceChannelId: null,
     rankPanelFinished: false,
     memberRankNotify: {},
+    memberStats: {},
   };
 }
 
@@ -57,6 +58,7 @@ function emptyGuildBlob() {
 function normalizeGuildBlob(g) {
   if (!g) return { ...emptyGuildBlob() };
   const mr = g.memberRankNotify;
+  const ms = g.memberStats;
   return {
     roles: { ...(g.roles || {}) },
     tierOverrides: { ...(g.tierOverrides || {}) },
@@ -68,6 +70,7 @@ function normalizeGuildBlob(g) {
     rankPanelFinished: Boolean(g.rankPanelFinished),
     memberRankNotify:
       typeof mr === 'object' && mr !== null && !Array.isArray(mr) ? { ...mr } : {},
+    memberStats: typeof ms === 'object' && ms !== null && !Array.isArray(ms) ? { ...ms } : {},
   };
 }
 
@@ -112,6 +115,7 @@ async function mongoSaveFull(id, blob) {
       rankAnnounceChannelId: blob.rankAnnounceChannelId,
       rankPanelFinished: blob.rankPanelFinished,
       memberRankNotify: blob.memberRankNotify,
+      memberStats: blob.memberStats || {},
     },
     { upsert: true },
   );
@@ -285,6 +289,38 @@ async function setMemberRankNotifyKey(guildId, userId, key, value) {
   await saveGuildBlob(id, cur);
 }
 
+function normalizeStatEntry(raw) {
+  if (!raw || typeof raw !== 'object') return { messages: 0, vocalMinutes: 0 };
+  return {
+    messages: Math.max(0, Math.floor(Number(raw.messages) || 0)),
+    vocalMinutes: Math.max(0, Number(raw.vocalMinutes) || 0),
+  };
+}
+
+async function incrementMemberMessages(guildId, userId, delta = 1) {
+  const id = normalizeGuildKey(guildId);
+  const uid = String(userId ?? '').trim();
+  if (!id || !uid || delta <= 0) return;
+  const cur = await loadGuildBlob(id);
+  const prev = normalizeStatEntry(cur.memberStats[uid]);
+  prev.messages += Math.floor(delta);
+  cur.memberStats[uid] = prev;
+  await saveGuildBlob(id, cur);
+}
+
+async function addMemberVocalMinutes(guildId, userId, minutes) {
+  const id = normalizeGuildKey(guildId);
+  const uid = String(userId ?? '').trim();
+  if (!id || !uid) return;
+  const m = Number(minutes);
+  if (!Number.isFinite(m) || m <= 0) return;
+  const cur = await loadGuildBlob(id);
+  const prev = normalizeStatEntry(cur.memberStats[uid]);
+  prev.vocalMinutes += m;
+  cur.memberStats[uid] = prev;
+  await saveGuildBlob(id, cur);
+}
+
 module.exports = {
   initStorage,
   getGuildConfig,
@@ -299,4 +335,6 @@ module.exports = {
   setRankPanelFinished,
   getMemberRankNotifyState,
   setMemberRankNotifyKey,
+  incrementMemberMessages,
+  addMemberVocalMinutes,
 };
