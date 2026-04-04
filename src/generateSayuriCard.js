@@ -4,7 +4,7 @@
  */
 
 const path = require('path');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { AttachmentBuilder } = require('discord.js');
 const { formatVocalHours, RANKS } = require('./rankConfig');
 const { getEffectiveRankState } = require('./rankResolver');
@@ -13,6 +13,25 @@ const { resolvePanelRankState } = require('./panelRankResolver');
 const ROOT = path.join(__dirname, '..');
 const ASSETS = path.join(ROOT, 'assets');
 const RANKS_DIR = path.join(ASSETS, 'ranks');
+const FONTS_DIR = path.join(ASSETS, 'fonts');
+
+/** Railway/Linux : pas de polices système → texte invisible sans TTF embarqués. */
+let canvasFontsReady = false;
+function ensureCanvasFonts() {
+  if (canvasFontsReady) return;
+  canvasFontsReady = true;
+  try {
+    const n = GlobalFonts.loadFontsFromDir(FONTS_DIR);
+    if (n < 1) {
+      console.warn('[sayuri-card] Aucune police dans', FONTS_DIR, '— texte vide possible.');
+    }
+  } catch (e) {
+    console.warn('[sayuri-card] loadFontsFromDir:', e?.message || e);
+  }
+}
+
+/** Famille enregistrée depuis les .ttf du dossier (Noto Sans). */
+const FONT = '"Noto Sans"';
 
 const COLORS = {
   gold: '#E8C547',
@@ -189,7 +208,7 @@ function drawUsernameRibbon(ctx, W, y, w, h, text) {
   ctx.stroke();
   ctx.save();
   ctx.fillStyle = COLORS.ivory;
-  ctx.font = '600 17px "Segoe UI", sans-serif';
+  ctx.font = `600 17px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const t = text.length > 38 ? `${text.slice(0, 36)}…` : text;
@@ -212,7 +231,7 @@ function drawSectionLabel(ctx, cx, y, w, h, label) {
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.fillStyle = COLORS.ivory;
-  ctx.font = 'bold 10px "Segoe UI", sans-serif';
+  ctx.font = `bold 700 10px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, cx, y + h / 2);
@@ -274,13 +293,13 @@ function drawCurrentRankPanel(ctx, ix, iy, inner, current, img) {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 26px "Times New Roman", Georgia, serif';
+  ctx.font = `bold 700 26px ${FONT}`;
   ctx.fillStyle = COLORS.gold;
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
   ctx.shadowBlur = 4;
   ctx.fillText(current.name, ix + inner / 2, iy + inner * (img ? 0.72 : 0.42));
   ctx.shadowBlur = 0;
-  ctx.font = '600 11px "Segoe UI", sans-serif';
+  ctx.font = `600 11px ${FONT}`;
   ctx.fillStyle = COLORS.ivory;
   const vmin =
     current.minVocalMinutes != null && current.minVocalMinutes !== undefined
@@ -292,7 +311,7 @@ function drawCurrentRankPanel(ctx, ix, iy, inner, current, img) {
       : `Seuil : ≥ ${vmin} min vocal`;
   ctx.fillText(seuilLine, ix + inner / 2, iy + inner * (img ? 0.88 : 0.62));
   if (!img) {
-    ctx.font = 'italic 10px "Segoe UI", sans-serif';
+    ctx.font = `italic 400 10px ${FONT}`;
     ctx.fillStyle = 'rgba(255,248,245,0.65)';
     ctx.fillText('Palier actuel', ix + inner / 2, iy + inner * 0.78);
   }
@@ -304,10 +323,10 @@ function drawCurrentRankPanel(ctx, ix, iy, inner, current, img) {
 function drawNextRankPanel(ctx, ix, iy, inner, next, isMax, img, vocalHours, messageCount = 0) {
   if (isMax) {
     ctx.textAlign = 'center';
-    ctx.font = 'bold 22px "Times New Roman", Georgia, serif';
+    ctx.font = `bold 700 22px ${FONT}`;
     ctx.fillStyle = COLORS.gold;
     ctx.fillText('Palier maximum', ix + inner / 2, iy + inner * 0.38);
-    ctx.font = '12px "Segoe UI", sans-serif';
+    ctx.font = `400 12px ${FONT}`;
     ctx.fillStyle = COLORS.ivory;
     ctx.fillText('Dernier palier', ix + inner / 2, iy + inner * 0.55);
     ctx.fillText('atteint.', ix + inner / 2, iy + inner * 0.68);
@@ -326,18 +345,18 @@ function drawNextRankPanel(ctx, ix, iy, inner, next, isMax, img, vocalHours, mes
   }
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 19px "Times New Roman", Georgia, serif';
+  ctx.font = `bold 700 19px ${FONT}`;
   ctx.fillStyle = COLORS.gold;
   ctx.fillText(next.name, ix + inner / 2, top + 12);
   top += 28;
 
   ctx.textAlign = 'left';
-  ctx.font = 'bold 9px "Segoe UI", sans-serif';
+  ctx.font = `bold 700 9px ${FONT}`;
   ctx.fillStyle = COLORS.pink;
   ctx.fillText('PRÉREQUIS', ix + 8, top);
   top += 14;
 
-  ctx.font = '10px "Segoe UI", sans-serif';
+  ctx.font = `400 10px ${FONT}`;
   ctx.fillStyle = 'rgba(255,248,245,0.9)';
   const maxW = inner - 16;
   const lineH = 12;
@@ -355,7 +374,7 @@ function drawNextRankPanel(ctx, ix, iy, inner, next, isMax, img, vocalHours, mes
   }
 
   ctx.textAlign = 'center';
-  ctx.font = 'italic 9px "Segoe UI", sans-serif';
+  ctx.font = `italic 400 9px ${FONT}`;
   ctx.fillStyle = 'rgba(255,183,197,0.85)';
   if (top < maxY - 10) {
     const nextVmin =
@@ -389,7 +408,7 @@ function drawStatusPill(ctx, cx, y, w, h, text) {
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.fillStyle = COLORS.ivory;
-  ctx.font = '600 12px "Segoe UI", sans-serif';
+  ctx.font = `600 12px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, cx, y + h / 2);
@@ -413,7 +432,7 @@ function drawProgressBlock(ctx, cx, barW, barH, barY, pct, labelPct) {
   ctx.fill();
 
   ctx.fillStyle = COLORS.ivory;
-  ctx.font = 'bold 14px "Segoe UI", sans-serif';
+  ctx.font = `bold 700 14px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText(labelPct ?? `${Math.round(p)}%`, cx, barY - 6);
@@ -469,6 +488,7 @@ function drawStatsPanel(ctx, x, y, w, h) {
  * @param {import('discord.js').Guild | null} [guild] — requis si panelRanks est utilisé (noms de rôles).
  */
 async function generateSayuriCard(member, data, guildConfig = {}, guild = null) {
+  ensureCanvasFonts();
   const W = 1000;
   const H = 640;
   const canvas = createCanvas(W, H);
@@ -495,13 +515,23 @@ async function generateSayuriCard(member, data, guildConfig = {}, guild = null) 
       })();
 
   const bgPath = path.join(ASSETS, 'sayuri_bg.png');
-  const curId = usePanel ? state.mergedCurrent.id : state.current?.id ?? 'shiro';
-  const currentImgPath = path.join(RANKS_DIR, `${curId}.png`);
-  const nextId = state.mergedNext?.id;
-  const nextImgPath = nextId && nextId !== 'none' ? path.join(RANKS_DIR, `${nextId}.png`) : null;
+  const isSnowflake = (id) => id != null && /^\d{17,20}$/.test(String(id));
+  const rawCurId = usePanel ? state.mergedCurrent.id : state.current?.id ?? 'shiro';
+  const curIdForAsset =
+    usePanel && isSnowflake(rawCurId) ? null : rawCurId;
+  const currentImgPath =
+    curIdForAsset && curIdForAsset !== 'none'
+      ? path.join(RANKS_DIR, `${curIdForAsset}.png`)
+      : null;
+  let nextIdForAsset = state.mergedNext?.id;
+  if (usePanel && isSnowflake(nextIdForAsset)) nextIdForAsset = null;
+  const nextImgPath =
+    nextIdForAsset && nextIdForAsset !== 'none'
+      ? path.join(RANKS_DIR, `${nextIdForAsset}.png`)
+      : null;
 
   const bg = await tryLoadImage(bgPath);
-  const imgCurrent = await tryLoadImage(currentImgPath);
+  const imgCurrent = currentImgPath ? await tryLoadImage(currentImgPath) : null;
   const imgNext = nextImgPath ? await tryLoadImage(nextImgPath) : null;
 
   if (bg) {
@@ -523,7 +553,7 @@ async function generateSayuriCard(member, data, guildConfig = {}, guild = null) 
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 28px "Times New Roman", Georgia, serif';
+  ctx.font = `bold 700 28px ${FONT}`;
   ctx.fillStyle = '#3d2914';
   ctx.fillText('SAYURI RANKUP', midX + 1, 72 + 1);
   ctx.fillStyle = COLORS.ivory;
@@ -584,7 +614,7 @@ async function generateSayuriCard(member, data, guildConfig = {}, guild = null) 
   const tx = panelX + 100;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = '500 16px "Segoe UI", sans-serif';
+  ctx.font = `500 16px ${FONT}`;
   ctx.fillStyle = COLORS.ivory;
   const vocalStr = formatVocalHours(vocalHours);
   const nextName = state.mergedNext ? state.mergedNext.name : '—';
